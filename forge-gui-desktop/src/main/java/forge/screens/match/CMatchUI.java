@@ -750,6 +750,83 @@ public final class CMatchUI
         } else {
             FThreads.invokeInEdtAndWait(focusRoutine);
         }
+
+        //auto ok bs
+        final GameView gv = this.getGameView();
+        if (gv != null) {
+            if (!gv.isMulligan()) {
+                if (!gv.isGameOver()) {
+                    final PlayerView turnPlayer = gv.getPlayerTurn();
+                    final PhaseType phase = gv.getPhase();
+
+                    if (phase == null) return;
+                    final String phaseStr = phase.toString();
+
+                    // 1. Only automate if it's the opponent's turn
+                    if (turnPlayer != null && !this.isLocalPlayer(turnPlayer)) {
+
+                        // 2. Determine if WE (or our Planeswalkers) are being attacked
+                        boolean localPlayerIsUnderAttack = false;
+                        final forge.game.combat.CombatView combat = gv.getCombat();
+
+                        if (combat != null && combat.getAttackers() != null) {
+                            for (CardView attacker : combat.getAttackers()) {
+                                Object defender = combat.getDefender(attacker);
+
+                                // Check if the card is attacking YOU directly
+                                if (defender instanceof PlayerView && this.isLocalPlayer((PlayerView) defender)) {
+                                    localPlayerIsUnderAttack = true;
+                                    break;
+                                }
+
+                                // Check if the card is attacking one of YOUR Planeswalkers
+                                if (defender instanceof CardView) {
+                                    CardView targetCard = (CardView) defender;
+                                    if (this.isLocalPlayer(targetCard.getController())) {
+                                        localPlayerIsUnderAttack = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Define the "Stop Zone"
+                        // Only stop if it's the blocking phase AND an attacker is pointed at us.
+                        boolean isBlockingPhase = phaseStr.equals("COMBAT_DECLARE_BLOCKERS");
+                        boolean shouldManualBlock = isBlockingPhase && localPlayerIsUnderAttack;
+
+                        // 4. Stack Check
+                        boolean stackNotEmpty = !gv.getStack().isEmpty();
+
+                        if (stackNotEmpty) {
+                            // Auto-resolve spells (Creatures, Instants, etc.)
+                            if (enable1 && (label1.equals("OK") || label1.equals("Resolve"))) {
+                                forge.gui.FThreads.invokeInEdtLater(() -> {
+                                    if (view.getBtnOK().isEnabled()) { view.getBtnOK().doClick(); }
+                                });
+                            }
+                        }
+                        else if (!shouldManualBlock) {
+                            // If we aren't being forced to block, auto-pass priority/phases
+                            if (enable1 && (label1.equals("OK") || label1.equals("Pass"))) {
+                                forge.gui.FThreads.invokeInEdtLater(() -> {
+                                    if (view.getBtnOK().isEnabled()) {
+                                        view.getBtnOK().doClick();
+                                    }
+                                });
+                            } else if (enable2 && (label2.equals("End Turn") || label2.equals("Pass") || label2.equals("End Phase"))) {
+                                forge.gui.FThreads.invokeInEdtLater(() -> {
+                                    if (view.getBtnCancel().isEnabled()) {
+                                        view.getBtnCancel().doClick();
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //auto ok bs
     }
 
     @Override
