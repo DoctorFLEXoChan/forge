@@ -726,7 +726,7 @@ public final class CMatchUI
         if (promptText != null) {
             final String lowerPrompt = promptText.toLowerCase();
             // Check for explicit local player names or sensitive keywords in the prompt
-            final String[] sensitiveKeywords = {"choose", "select", "target", "pay", "discard", "sacrifice", "assign", "order", "play", "cast", "search", "scry", "surveil", "look", "exile", "return", "reveal", "name"};
+            final String[] sensitiveKeywords = {"choose", "select", "target", "pay", "discard", "sacrifice", "assign", "order", "play", "cast", "search", "scry", "surveil", "look", "exile", "return", "reveal", "name", "vote", "choice"};
             boolean hasSensitiveKeyword = false;
             for (String kw : sensitiveKeywords) {
                 if (lowerPrompt.contains(kw)) {
@@ -866,10 +866,28 @@ public final class CMatchUI
             if (shouldAutomate) {
                 // 2. Only automate for simple OK/Pass/Resolve/Yes buttons
                 if (enable1 && (label1.equals("OK") || label1.equals("Resolve") || label1.equals("Pass") || label1.equals("Yes"))) {
+                    // Safety: Never auto-pass priority on our own turn when the stack is empty to prevent auto-ending phases
+                    if (isLocalPlayerTurn && somethingOnStack && label1.equals("Pass")) {
+                        // Only auto-pass our own triggers/spells
+                    } else if (isLocalPlayerTurn && !somethingOnStack) {
+                        return; // Extra safety: don't automate on our turn if stack is empty
+                    }
+
                     forge.gui.FThreads.invokeInEdtLater(() -> {
                         // Double-check everything in EDT to prevent race conditions
+                        final GameView currentGv = getGameView();
+                        boolean currentStackEmpty = currentGv == null || currentGv.getStack().isEmpty();
+                        if (isLocalPlayerTurn && currentStackEmpty) {
+                            return; // Stop if the stack emptied before we could click (prevents auto-ending phase)
+                        }
+
                         if (view.getBtnOK().isEnabled() && !isLocalPlayerInvolved() &&
                             (view.getBtnOK().getText().equals("OK") || view.getBtnOK().getText().equals("Resolve") || view.getBtnOK().getText().equals("Pass") || view.getBtnOK().getText().equals("Yes"))) {
+
+                            // One last check for "Pass" on player's turn
+                            if (isLocalPlayerTurn && view.getBtnOK().getText().equals("Pass") && currentStackEmpty) {
+                                return;
+                            }
                             view.getBtnOK().doClick();
                         }
                     });
