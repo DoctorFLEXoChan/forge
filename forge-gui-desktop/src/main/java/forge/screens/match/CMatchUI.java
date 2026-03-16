@@ -751,19 +751,18 @@ public final class CMatchUI
 
         // 1. Check Stack
         for (final StackItemView stackItem : gv.getStack()) {
-            // Check if we control the spell/ability
-            if (this.isLocalPlayer(stackItem.getActivatingPlayer())) {
-                return true;
-            }
-            // Check if we or our cards are targeted
-            for (final PlayerView targetPlayer : stackItem.getTargetPlayers()) {
-                if (this.isLocalPlayer(targetPlayer)) {
-                    return true;
+            // Only care if an opponent's spell/ability targets us or our stuff
+            if (!this.isLocalPlayer(stackItem.getActivatingPlayer())) {
+                // Check if we or our cards are targeted by this opponent's item
+                for (final PlayerView targetPlayer : stackItem.getTargetPlayers()) {
+                    if (this.isLocalPlayer(targetPlayer)) {
+                        return true;
+                    }
                 }
-            }
-            for (final CardView targetCard : stackItem.getTargetCards()) {
-                if (this.isLocalPlayer(targetCard.getController())) {
-                    return true;
+                for (final CardView targetCard : stackItem.getTargetCards()) {
+                    if (this.isLocalPlayer(targetCard.getController())) {
+                        return true;
+                    }
                 }
             }
         }
