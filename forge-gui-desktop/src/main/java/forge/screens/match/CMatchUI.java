@@ -750,17 +750,12 @@ public final class CMatchUI
         }
 
         // 1. Check Stack
-        boolean opponentSpellOnStack = false;
         boolean onlyLocalOnStack = true;
         boolean stackNotEmpty = !gv.getStack().isEmpty();
         for (final StackItemView stackItem : gv.getStack()) {
             boolean isLocal = this.isLocalPlayer(stackItem.getActivatingPlayer());
             if (!isLocal) {
                 onlyLocalOnStack = false;
-                // Stop for opponent spells (to allow counterspells)
-                if (!stackItem.isAbility()) {
-                    opponentSpellOnStack = true;
-                }
 
                 // Check if we or our cards are targeted by this opponent's item
                 for (final PlayerView targetPlayer : stackItem.getTargetPlayers()) {
@@ -774,10 +769,6 @@ public final class CMatchUI
                     }
                 }
             }
-        }
-
-        if (opponentSpellOnStack) {
-            return true;
         }
 
         // 2. Check Combat
