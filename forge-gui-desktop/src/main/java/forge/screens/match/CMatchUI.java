@@ -726,7 +726,7 @@ public final class CMatchUI
         if (promptText != null) {
             final String lowerPrompt = promptText.toLowerCase();
             // Check for explicit "you" or local player names in the prompt in a sensitive context
-            final String[] sensitiveKeywords = {"choose", "select", "target", "pay", "discard", "sacrifice", "put", "assign", "order", "play", "cast"};
+            final String[] sensitiveKeywords = {"choose", "select", "target", "pay", "discard", "sacrifice", "put", "assign", "order", "play", "cast", "search", "scry", "surveil", "look", "exile", "return", "reveal", "name"};
             boolean hasSensitiveKeyword = false;
             for (String kw : sensitiveKeywords) {
                 if (lowerPrompt.contains(kw)) {
@@ -750,9 +750,18 @@ public final class CMatchUI
         }
 
         // 1. Check Stack
+        boolean opponentSpellOnStack = false;
+        boolean onlyLocalOnStack = true;
+        boolean stackNotEmpty = !gv.getStack().isEmpty();
         for (final StackItemView stackItem : gv.getStack()) {
-            // Only care if an opponent's spell/ability targets us or our stuff
-            if (!this.isLocalPlayer(stackItem.getActivatingPlayer())) {
+            boolean isLocal = this.isLocalPlayer(stackItem.getActivatingPlayer());
+            if (!isLocal) {
+                onlyLocalOnStack = false;
+                // Stop for opponent spells (to allow counterspells)
+                if (!stackItem.isAbility()) {
+                    opponentSpellOnStack = true;
+                }
+
                 // Check if we or our cards are targeted by this opponent's item
                 for (final PlayerView targetPlayer : stackItem.getTargetPlayers()) {
                     if (this.isLocalPlayer(targetPlayer)) {
@@ -767,7 +776,16 @@ public final class CMatchUI
             }
         }
 
+        if (opponentSpellOnStack) {
+            return true;
+        }
+
         // 2. Check Combat
+        // If the stack is not empty and only contains our stuff, we don't want combat to stop us from auto-resolving
+        if (stackNotEmpty && onlyLocalOnStack) {
+            return false;
+        }
+
         final CombatView combat = gv.getCombat();
         if (combat != null) {
             for (final CardView attacker : combat.getAttackers()) {
@@ -841,13 +859,16 @@ public final class CMatchUI
         if (gv != null && !gv.isMulligan() && !gv.isGameOver()) {
             final PlayerView turnPlayer = gv.getPlayerTurn();
 
-            // 1. Only automate if it's the opponent's turn and no local player is involved
-            if (turnPlayer != null && !this.isLocalPlayer(turnPlayer) && !isLocalPlayerInvolved()) {
+            // 1. Only automate if it's the opponent's turn or if something we control is on the stack
+            boolean isOpponentTurn = turnPlayer != null && !this.isLocalPlayer(turnPlayer);
+            boolean somethingOnStack = !gv.getStack().isEmpty();
 
-                // 2. Only automate for simple OK/Pass/Resolve buttons
-                if (enable1 && (label1.equals("OK") || label1.equals("Resolve") || label1.equals("Pass"))) {
+            if ((isOpponentTurn || somethingOnStack) && !isLocalPlayerInvolved()) {
+
+                // 2. Only automate for simple OK/Pass/Resolve/Yes buttons
+                if (enable1 && (label1.equals("OK") || label1.equals("Resolve") || label1.equals("Pass") || label1.equals("Yes"))) {
                     forge.gui.FThreads.invokeInEdtLater(() -> {
-                        if (view.getBtnOK().isEnabled() && (view.getBtnOK().getText().equals("OK") || view.getBtnOK().getText().equals("Resolve") || view.getBtnOK().getText().equals("Pass"))) {
+                        if (view.getBtnOK().isEnabled() && (view.getBtnOK().getText().equals("OK") || view.getBtnOK().getText().equals("Resolve") || view.getBtnOK().getText().equals("Pass") || view.getBtnOK().getText().equals("Yes"))) {
                             view.getBtnOK().doClick();
                         }
                     });
