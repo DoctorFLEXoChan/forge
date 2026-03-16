@@ -725,8 +725,8 @@ public final class CMatchUI
         final String promptText = getCPrompt().getMessage();
         if (promptText != null) {
             final String lowerPrompt = promptText.toLowerCase();
-            // Check for explicit "you" or local player names in the prompt in a sensitive context
-            final String[] sensitiveKeywords = {"choose", "select", "target", "pay", "discard", "sacrifice", "put", "assign", "order", "play", "cast", "search", "scry", "surveil", "look", "exile", "return", "reveal", "name"};
+            // Check for explicit local player names or sensitive keywords in the prompt
+            final String[] sensitiveKeywords = {"choose", "select", "target", "pay", "discard", "sacrifice", "assign", "order", "play", "cast", "search", "scry", "surveil", "look", "exile", "return", "reveal", "name"};
             boolean hasSensitiveKeyword = false;
             for (String kw : sensitiveKeywords) {
                 if (lowerPrompt.contains(kw)) {
@@ -736,15 +736,15 @@ public final class CMatchUI
             }
 
             if (hasSensitiveKeyword) {
-                // If it mentions "you" or "your", assume involvement unless it's a "waiting" message
-                if ((lowerPrompt.contains("you") || lowerPrompt.contains("your")) &&
-                        !lowerPrompt.contains("waiting for") && !lowerPrompt.contains("opponent is")) {
-                    return true;
-                }
                 for (PlayerView pv : gv.getPlayers()) {
                     if (isLocalPlayer(pv) && promptText.contains(pv.getName())) {
                         return true;
                     }
+                }
+                // If it mentions "you" or "your" in a non-waiting context, it might be a choice
+                if ((lowerPrompt.contains("you ") || lowerPrompt.contains("your ")) &&
+                        !lowerPrompt.contains("waiting for") && !lowerPrompt.contains("opponent is")) {
+                    return true;
                 }
             }
         }
@@ -849,23 +849,35 @@ public final class CMatchUI
         final GameView gv = this.getGameView();
         if (gv != null && !gv.isMulligan() && !gv.isGameOver()) {
             final PlayerView turnPlayer = gv.getPlayerTurn();
+            final boolean isLocalPlayerTurn = turnPlayer != null && this.isLocalPlayer(turnPlayer);
+            final boolean somethingOnStack = !gv.getStack().isEmpty();
 
-            // 1. Only automate if it's the opponent's turn or if something we control is on the stack
-            boolean isOpponentTurn = turnPlayer != null && !this.isLocalPlayer(turnPlayer);
-            boolean somethingOnStack = !gv.getStack().isEmpty();
+            // 1. Determine if we should automate
+            boolean shouldAutomate = false;
+            if (!isLocalPlayerTurn) {
+                // On opponent's turn, automate if we aren't involved
+                shouldAutomate = !isLocalPlayerInvolved();
+            } else if (somethingOnStack) {
+                // On our turn, only automate if something is on the stack (to resolve triggers)
+                // AND no sensitive keywords or targeting are involved
+                shouldAutomate = !isLocalPlayerInvolved();
+            }
 
-            if ((isOpponentTurn || somethingOnStack) && !isLocalPlayerInvolved()) {
-
+            if (shouldAutomate) {
                 // 2. Only automate for simple OK/Pass/Resolve/Yes buttons
                 if (enable1 && (label1.equals("OK") || label1.equals("Resolve") || label1.equals("Pass") || label1.equals("Yes"))) {
                     forge.gui.FThreads.invokeInEdtLater(() -> {
-                        if (view.getBtnOK().isEnabled() && (view.getBtnOK().getText().equals("OK") || view.getBtnOK().getText().equals("Resolve") || view.getBtnOK().getText().equals("Pass") || view.getBtnOK().getText().equals("Yes"))) {
+                        // Double-check everything in EDT to prevent race conditions
+                        if (view.getBtnOK().isEnabled() && !isLocalPlayerInvolved() &&
+                            (view.getBtnOK().getText().equals("OK") || view.getBtnOK().getText().equals("Resolve") || view.getBtnOK().getText().equals("Pass") || view.getBtnOK().getText().equals("Yes"))) {
                             view.getBtnOK().doClick();
                         }
                     });
-                } else if (enable2 && (label2.equals("End Turn") || label2.equals("Pass") || label2.equals("End Phase"))) {
+                } else if (enable2 && !isLocalPlayerTurn && (label2.equals("End Turn") || label2.equals("Pass") || label2.equals("End Phase"))) {
+                    // On opponent's turn, we can also automate the cancel/end phase button if safe
                     forge.gui.FThreads.invokeInEdtLater(() -> {
-                        if (view.getBtnCancel().isEnabled() && (view.getBtnCancel().getText().equals("End Turn") || view.getBtnCancel().getText().equals("Pass") || view.getBtnCancel().getText().equals("End Phase"))) {
+                        if (view.getBtnCancel().isEnabled() && !isLocalPlayerInvolved() &&
+                            (view.getBtnCancel().getText().equals("End Turn") || view.getBtnCancel().getText().equals("Pass") || view.getBtnCancel().getText().equals("End Phase"))) {
                             view.getBtnCancel().doClick();
                         }
                     });
