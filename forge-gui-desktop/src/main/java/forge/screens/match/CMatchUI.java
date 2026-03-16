@@ -716,6 +716,92 @@ public final class CMatchUI
         return null;
     }
 
+    private boolean isLocalPlayerInvolved() {
+        final GameView gv = this.getGameView();
+        if (gv == null) {
+            return false;
+        }
+
+        final String promptText = getCPrompt().getMessage();
+        if (promptText != null) {
+            final String lowerPrompt = promptText.toLowerCase();
+            // Check for explicit "you" or local player names in the prompt in a sensitive context
+            final String[] sensitiveKeywords = {"choose", "select", "target", "pay", "discard", "sacrifice", "put", "assign", "order", "play", "cast"};
+            boolean hasSensitiveKeyword = false;
+            for (String kw : sensitiveKeywords) {
+                if (lowerPrompt.contains(kw)) {
+                    hasSensitiveKeyword = true;
+                    break;
+                }
+            }
+
+            if (hasSensitiveKeyword) {
+                // If it mentions "you" or "your", assume involvement unless it's a "waiting" message
+                if ((lowerPrompt.contains("you") || lowerPrompt.contains("your")) &&
+                        !lowerPrompt.contains("waiting for") && !lowerPrompt.contains("opponent is")) {
+                    return true;
+                }
+                for (PlayerView pv : gv.getPlayers()) {
+                    if (isLocalPlayer(pv) && promptText.contains(pv.getName())) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // 1. Check Stack
+        for (final StackItemView stackItem : gv.getStack()) {
+            // Check if we control the spell/ability
+            if (this.isLocalPlayer(stackItem.getActivatingPlayer())) {
+                return true;
+            }
+            // Check if we or our cards are targeted
+            for (final PlayerView targetPlayer : stackItem.getTargetPlayers()) {
+                if (this.isLocalPlayer(targetPlayer)) {
+                    return true;
+                }
+            }
+            for (final CardView targetCard : stackItem.getTargetCards()) {
+                if (this.isLocalPlayer(targetCard.getController())) {
+                    return true;
+                }
+            }
+        }
+
+        // 2. Check Combat
+        final CombatView combat = gv.getCombat();
+        if (combat != null) {
+            for (final CardView attacker : combat.getAttackers()) {
+                // Check if we control the attacker
+                if (this.isLocalPlayer(attacker.getController())) {
+                    return true;
+                }
+
+                final GameEntityView defender = combat.getDefender(attacker);
+                // Check if we are being attacked
+                if (defender instanceof PlayerView && this.isLocalPlayer((PlayerView) defender)) {
+                    return true;
+                }
+                // Check if our planeswalker/permanent is being attacked
+                if (defender instanceof CardView && this.isLocalPlayer(((CardView) defender).getController())) {
+                    return true;
+                }
+
+                // Check if any of our creatures are blocking
+                final FCollection<CardView> blockers = combat.getBlockers(attacker);
+                if (blockers != null) {
+                    for (final CardView blocker : blockers) {
+                        if (this.isLocalPlayer(blocker.getController())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     @Override
     public void updateButtons(final PlayerView owner, final String label1, final String label2, final boolean enable1, final boolean enable2, final boolean focus1) {
         final FButton btn1 = view.getBtnOK(), btn2 = view.getBtnCancel();
@@ -753,76 +839,25 @@ public final class CMatchUI
 
         //auto ok bs
         final GameView gv = this.getGameView();
-        if (gv != null) {
-            if (!gv.isMulligan()) {
-                if (!gv.isGameOver()) {
-                    final PlayerView turnPlayer = gv.getPlayerTurn();
-                    final PhaseType phase = gv.getPhase();
+        if (gv != null && !gv.isMulligan() && !gv.isGameOver()) {
+            final PlayerView turnPlayer = gv.getPlayerTurn();
 
-                    if (phase == null) return;
-                    final String phaseStr = phase.toString();
+            // 1. Only automate if it's the opponent's turn and no local player is involved
+            if (turnPlayer != null && !this.isLocalPlayer(turnPlayer) && !isLocalPlayerInvolved()) {
 
-                    // 1. Only automate if it's the opponent's turn
-                    if (turnPlayer != null && !this.isLocalPlayer(turnPlayer)) {
-
-                        // 2. Determine if WE (or our Planeswalkers) are being attacked
-                        boolean localPlayerIsUnderAttack = false;
-                        final forge.game.combat.CombatView combat = gv.getCombat();
-
-                        if (combat != null && combat.getAttackers() != null) {
-                            for (CardView attacker : combat.getAttackers()) {
-                                Object defender = combat.getDefender(attacker);
-
-                                // Check if the card is attacking YOU directly
-                                if (defender instanceof PlayerView && this.isLocalPlayer((PlayerView) defender)) {
-                                    localPlayerIsUnderAttack = true;
-                                    break;
-                                }
-
-                                // Check if the card is attacking one of YOUR Planeswalkers
-                                if (defender instanceof CardView) {
-                                    CardView targetCard = (CardView) defender;
-                                    if (this.isLocalPlayer(targetCard.getController())) {
-                                        localPlayerIsUnderAttack = true;
-                                        break;
-                                    }
-                                }
-                            }
+                // 2. Only automate for simple OK/Pass/Resolve buttons
+                if (enable1 && (label1.equals("OK") || label1.equals("Resolve") || label1.equals("Pass"))) {
+                    forge.gui.FThreads.invokeInEdtLater(() -> {
+                        if (view.getBtnOK().isEnabled() && (view.getBtnOK().getText().equals("OK") || view.getBtnOK().getText().equals("Resolve") || view.getBtnOK().getText().equals("Pass"))) {
+                            view.getBtnOK().doClick();
                         }
-
-                        // 3. Define the "Stop Zone"
-                        // Only stop if it's the blocking phase AND an attacker is pointed at us.
-                        boolean isBlockingPhase = phaseStr.equals("COMBAT_DECLARE_BLOCKERS");
-                        boolean shouldManualBlock = isBlockingPhase && localPlayerIsUnderAttack;
-
-                        // 4. Stack Check
-                        boolean stackNotEmpty = !gv.getStack().isEmpty();
-
-                        if (stackNotEmpty) {
-                            // Auto-resolve spells (Creatures, Instants, etc.)
-                            if (enable1 && (label1.equals("OK") || label1.equals("Resolve"))) {
-                                forge.gui.FThreads.invokeInEdtLater(() -> {
-                                    if (view.getBtnOK().isEnabled()) { view.getBtnOK().doClick(); }
-                                });
-                            }
+                    });
+                } else if (enable2 && (label2.equals("End Turn") || label2.equals("Pass") || label2.equals("End Phase"))) {
+                    forge.gui.FThreads.invokeInEdtLater(() -> {
+                        if (view.getBtnCancel().isEnabled() && (view.getBtnCancel().getText().equals("End Turn") || view.getBtnCancel().getText().equals("Pass") || view.getBtnCancel().getText().equals("End Phase"))) {
+                            view.getBtnCancel().doClick();
                         }
-                        else if (!shouldManualBlock) {
-                            // If we aren't being forced to block, auto-pass priority/phases
-                            if (enable1 && (label1.equals("OK") || label1.equals("Pass"))) {
-                                forge.gui.FThreads.invokeInEdtLater(() -> {
-                                    if (view.getBtnOK().isEnabled()) {
-                                        view.getBtnOK().doClick();
-                                    }
-                                });
-                            } else if (enable2 && (label2.equals("End Turn") || label2.equals("Pass") || label2.equals("End Phase"))) {
-                                forge.gui.FThreads.invokeInEdtLater(() -> {
-                                    if (view.getBtnCancel().isEnabled()) {
-                                        view.getBtnCancel().doClick();
-                                    }
-                                });
-                            }
-                        }
-                    }
+                    });
                 }
             }
         }

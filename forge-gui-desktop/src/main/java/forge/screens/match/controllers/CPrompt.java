@@ -144,13 +144,21 @@ public class CPrompt implements ICDoc {
         matchUI.getGameController().selectButtonCancel();
     }
 
+    private String lastMessage = "";
+
     public void setMessage(final String header) {
+        lastMessage = header;
         view.getTarMessage().setText(FSkin.encodeSymbols(header, false));
         view.setCardView(null);
     }
     public void setMessage(final String s0, final CardView card) {
+        lastMessage = s0;
     	view.getTarMessage().setText(FSkin.encodeSymbols(s0, false));
     	view.setCardView(card);
+    }
+
+    public String getMessage() {
+        return lastMessage;
     }
 
     /**
